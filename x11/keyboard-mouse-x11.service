@@ -1,11 +1,11 @@
 [Unit]
-Description=Keyboard mouse mode for Wayland
+Description=Keyboard mouse mode for X11
 After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 %h/.local/share/keyboard-mouse/keyboard_mouse_wayland.py
+ExecStart=/usr/bin/python3 %h/.local/share/keyboard-mouse/keyboard_mouse_x11.py
 WorkingDirectory=%h/.local/share/keyboard-mouse
 Restart=on-failure
 RestartSec=2

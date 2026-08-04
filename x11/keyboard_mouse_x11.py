@@ -42,9 +42,9 @@ KEYS = {
 
 SPEEDS = {
     "cursor_interval_seconds": 0.010,
-    "cursor_base": 4,
+    "cursor_base": 2,
     "cursor_large_add": 40,
-    "cursor_small_add": 20,
+    "cursor_small_add": 10,
     "scroll_interval_seconds": 0.010,
     "scroll_base": 10,
     "scroll_large_add": 64,
@@ -54,11 +54,11 @@ SPEEDS = {
 SMOOTH_SCROLL_ENABLED = True
 
 # Any CSS colour GNOME Shell accepts, for example "#26a269" or "rgba(38,162,105,0.85)".
-PANEL_COLOR = "#0f492f"
+PANEL_COLOR = "#3c7325"
 
 # Name of the virtual device this program creates. Auto-detection skips it so a
 # restarting instance cannot grab the previous instance's output device.
-OUTPUT_DEVICE_NAME = "Keyboard Mouse Wayland"
+OUTPUT_DEVICE_NAME = "Keyboard Mouse X11"
 
 BUS_NAME = "org.kal.KeyboardMouse"
 OBJECT_PATH = "/org/kal/KeyboardMouse"

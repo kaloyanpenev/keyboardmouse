@@ -1,6 +1,6 @@
-# Keyboard mouse for Ubuntu 24.04 Wayland
+# Keyboard mouse for Ubuntu 24.04 X11
 
-This is the native Wayland equivalent of the AutoHotkey script. It reads a physical keyboard with `evdev`, suppresses mouse-mode keys, and emits a virtual keyboard and mouse with Linux `uinput`.
+This is the native X11 equivalent of the AutoHotkey script. It reads a physical keyboard with `evdev`, suppresses mouse-mode keys, and emits a virtual keyboard and mouse with Linux `uinput`.
 
 ## Bindings
 
@@ -29,7 +29,7 @@ Only code running inside `gnome-shell` can restyle the panel, so this is split a
 
 The program owns the name `org.kal.KeyboardMouse` on the session bus, exposes `GetState() -> (bool active, string color)`, and emits `StateChanged(bool, string)` on every toggle. The GNOME Shell extension watches for that name, reads the current state when it appears, then follows the signal and applies the colour as an inline style on `Main.panel`.
 
-The extension is the watcher, so the two can start, stop, and restart in any order without losing sync. The colour travels over the bus with every state change, which keeps all configuration in `keyboard_mouse_wayland.py` instead of a separate settings schema.
+The extension is the watcher, so the two can start, stop, and restart in any order without losing sync. The colour travels over the bus with every state change, which keeps all configuration in `keyboard_mouse_x11.py` instead of a separate settings schema.
 
 ## Install
 
@@ -93,10 +93,10 @@ The unit is wanted by `graphical-session.target`, so it starts at graphical logi
 
 ```bash
 mkdir -p ~/.local/share/keyboard-mouse ~/.config/systemd/user
-ln -sfn "$PWD/keyboard_mouse_wayland.py" ~/.local/share/keyboard-mouse/keyboard_mouse_wayland.py
-cp keyboard-mouse-wayland.service ~/.config/systemd/user/
+ln -sfn "$PWD/keyboard_mouse_x11.py" ~/.local/share/keyboard-mouse/keyboard_mouse_x11.py
+cp keyboard-mouse-x11.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now keyboard-mouse-wayland.service
+systemctl --user enable --now keyboard-mouse-x11.service
 ```
 
 The symlink keeps this checkout as the only copy of the script, so edits here take effect on the next restart. Moving or deleting the checkout breaks the link.
@@ -106,17 +106,17 @@ The symlink keeps this checkout as the only copy of the script, so edits here ta
 Manage the service:
 
 ```bash
-systemctl --user status keyboard-mouse-wayland.service     # is it running
-systemctl --user restart keyboard-mouse-wayland.service    # apply config edits
-systemctl --user stop keyboard-mouse-wayland.service       # release the keyboards now
-systemctl --user start keyboard-mouse-wayland.service
-systemctl --user disable --now keyboard-mouse-wayland.service   # stop starting at login
+systemctl --user status keyboard-mouse-x11.service     # is it running
+systemctl --user restart keyboard-mouse-x11.service    # apply config edits
+systemctl --user stop keyboard-mouse-x11.service       # release the keyboards now
+systemctl --user start keyboard-mouse-x11.service
+systemctl --user disable --now keyboard-mouse-x11.service   # stop starting at login
 ```
 
 Follow its output:
 
 ```bash
-journalctl --user -u keyboard-mouse-wayland.service -f
+journalctl --user -u keyboard-mouse-x11.service -f
 ```
 
 On a healthy start it prints one `Using keyboard:` line per grabbed device.
@@ -146,8 +146,8 @@ gnome-extensions disable keyboard-mouse-panel@kal
 The service and a hand-started copy cannot both run, because grabbing an input device is exclusive. Stop the service first:
 
 ```bash
-systemctl --user stop keyboard-mouse-wayland.service
-python3 keyboard_mouse_wayland.py
+systemctl --user stop keyboard-mouse-x11.service
+python3 keyboard_mouse_x11.py
 ```
 
 Stop the program with Ctrl+C in its terminal. Linux releases grabbed devices when the process exits. Start the service again when you are done.
@@ -158,11 +158,11 @@ The program automatically grabs every accessible device that looks like a full k
 ls -l /dev/input/by-id/*-event-kbd
 ```
 
-Then set `KEYBOARD_DEVICE_PATHS` near the top of `keyboard_mouse_wayland.py`.
+Then set `KEYBOARD_DEVICE_PATHS` near the top of `keyboard_mouse_x11.py`.
 
 ## Configuration
 
-Edit the values near the top of `keyboard_mouse_wayland.py`, then run `systemctl --user restart keyboard-mouse-wayland.service`.
+Edit the values near the top of `keyboard_mouse_x11.py`, then run `systemctl --user restart keyboard-mouse-x11.service`.
 
 - `KEYS` contains every binding.
 - `SPEEDS` contains cursor and scrolling distances and intervals.
@@ -181,10 +181,10 @@ Smooth scrolling depends on GNOME, libinput, and the active application's suppor
 
 **The top bar does not change colour.** Check the program is publishing with the `gdbus call` above. If that answers, the problem is on the shell side: confirm `gnome-extensions info keyboard-mouse-panel@kal` says `ACTIVE`, and check for extension errors with `journalctl --user -u org.gnome.Shell@x11 -f` or `journalctl --user -b | grep -i keyboard-mouse-panel`. A freshly copied extension needs a shell reload before it can be enabled.
 
-**`Cannot start keyboard mouse: [Errno 16] Device or resource busy`.** Something else already holds an exclusive grab on a keyboard, almost always a second copy of this program. Find it with `pgrep -af keyboard_mouse_wayland.py` and stop it, then check `systemctl --user status keyboard-mouse-wayland.service`.
+**`Cannot start keyboard mouse: [Errno 16] Device or resource busy`.** Something else already holds an exclusive grab on a keyboard, almost always a second copy of this program. Find it with `pgrep -af keyboard_mouse_x11.py` and stop it, then check `systemctl --user status keyboard-mouse-x11.service`.
 
 **`No accessible full keyboard found`.** Group membership has not taken effect. Log out and back in, then verify with `id -nG | grep input`.
 
-**The keyboard stops responding.** Stop the program from another machine over SSH, or switch to a text console with Ctrl+Alt+F3 and run `systemctl --user stop keyboard-mouse-wayland.service`. Grabs are released when the process exits, and the kernel drops them if it is killed.
+**The keyboard stops responding.** Stop the program from another machine over SSH, or switch to a text console with Ctrl+Alt+F3 and run `systemctl --user stop keyboard-mouse-x11.service`. Grabs are released when the process exits, and the kernel drops them if it is killed.
 
 **Mouse mode is stuck on.** The state lives in the running process. Restart the service to clear it.
