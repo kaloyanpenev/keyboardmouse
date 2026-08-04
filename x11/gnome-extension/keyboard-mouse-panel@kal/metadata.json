@@ -1,0 +1,7 @@
+{
+  "uuid": "keyboard-mouse-panel@kal",
+  "name": "Keyboard Mouse Panel",
+  "description": "Tints the top bar while keyboard mouse mode is on.",
+  "shell-version": ["45", "46", "47", "48"],
+  "version": 1
+}

@@ -6,20 +6,15 @@ import signal
 import sys
 import threading
 import time
-from pathlib import Path
 
 try:
-    import gi
+    import gi  # noqa: F401
 
-    gi.require_version("Gtk", "3.0")
-    gi.require_version("AyatanaAppIndicator3", "0.1")
-    from gi.repository import AyatanaAppIndicator3 as AppIndicator
-    from gi.repository import GLib, Gtk
+    from gi.repository import Gio, GLib
     from evdev import InputDevice, UInput, ecodes, list_devices
 except (ImportError, ValueError) as error:
     raise SystemExit(
-        "Missing dependencies. Run: sudo apt install python3-evdev "
-        "python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1"
+        "Missing dependencies. Run: sudo apt install python3-evdev python3-gi"
     ) from error
 
 
@@ -58,6 +53,30 @@ SPEEDS = {
 
 SMOOTH_SCROLL_ENABLED = True
 
+# Any CSS colour GNOME Shell accepts, for example "#26a269" or "rgba(38,162,105,0.85)".
+PANEL_COLOR = "#0f492f"
+
+# Name of the virtual device this program creates. Auto-detection skips it so a
+# restarting instance cannot grab the previous instance's output device.
+OUTPUT_DEVICE_NAME = "Keyboard Mouse Wayland"
+
+BUS_NAME = "org.kal.KeyboardMouse"
+OBJECT_PATH = "/org/kal/KeyboardMouse"
+INTERFACE_XML = f"""
+<node>
+  <interface name="{BUS_NAME}">
+    <method name="GetState">
+      <arg type="b" name="active" direction="out"/>
+      <arg type="s" name="color" direction="out"/>
+    </method>
+    <signal name="StateChanged">
+      <arg type="b" name="active"/>
+      <arg type="s" name="color"/>
+    </signal>
+  </interface>
+</node>
+"""
+
 
 def key_code(name: str) -> int:
     try:
@@ -76,41 +95,53 @@ def resolved_keys() -> dict[str, int | tuple[int, ...]]:
     return result
 
 
-class ModeIndicator:
-    def __init__(self, stop_event: threading.Event) -> None:
-        self.stop_event = stop_event
-        self.base_dir = Path(__file__).resolve().parent
-        self.indicator = AppIndicator.Indicator.new(
-            "keyboard-mouse-wayland",
-            str(self.base_dir / "mouse-mode-off.svg"),
-            AppIndicator.IndicatorCategory.APPLICATION_STATUS,
+class ModeService:
+    """Publishes mouse mode on the session bus for the GNOME Shell extension."""
+
+    def __init__(self) -> None:
+        self.interface = Gio.DBusNodeInfo.new_for_xml(INTERFACE_XML).interfaces[0]
+        self.connection: Gio.DBusConnection | None = None
+        self.mouse_mode = False
+        self.owner_id = Gio.bus_own_name(
+            Gio.BusType.SESSION,
+            BUS_NAME,
+            Gio.BusNameOwnerFlags.NONE,
+            self._on_bus_acquired,
+            None,
+            None,
         )
-        self.indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
 
-        menu = Gtk.Menu()
-        self.status_item = Gtk.MenuItem(label="Mouse mode: OFF")
-        self.status_item.set_sensitive(False)
-        menu.append(self.status_item)
+    def _on_bus_acquired(self, connection: Gio.DBusConnection, _name: str) -> None:
+        connection.register_object(
+            OBJECT_PATH, self.interface, self._on_method_call, None, None
+        )
+        self.connection = connection
 
-        quit_item = Gtk.MenuItem(label="Quit")
-        quit_item.connect("activate", self.quit)
-        menu.append(quit_item)
-        menu.show_all()
-        self.indicator.set_menu(menu)
+    def _on_method_call(
+        self,
+        _connection: Gio.DBusConnection,
+        _sender: str,
+        _path: str,
+        _interface: str,
+        _method: str,
+        _params: GLib.Variant,
+        invocation: Gio.DBusMethodInvocation,
+    ) -> None:
+        invocation.return_value(self._state())
+
+    def _state(self) -> GLib.Variant:
+        return GLib.Variant("(bs)", (self.mouse_mode, PANEL_COLOR))
 
     def set_mode(self, enabled: bool) -> None:
-        GLib.idle_add(self._apply_mode, enabled)
+        GLib.idle_add(self._publish, enabled)
 
-    def _apply_mode(self, enabled: bool) -> bool:
-        state = "ON" if enabled else "OFF"
-        icon = "mouse-mode-on.svg" if enabled else "mouse-mode-off.svg"
-        self.status_item.set_label(f"Mouse mode: {state}")
-        self.indicator.set_icon_full(str(self.base_dir / icon), f"Mouse mode: {state}")
+    def _publish(self, enabled: bool) -> bool:
+        self.mouse_mode = enabled
+        if self.connection is not None:
+            self.connection.emit_signal(
+                None, OBJECT_PATH, BUS_NAME, "StateChanged", self._state()
+            )
         return False
-
-    def quit(self, *_args: object) -> None:
-        self.stop_event.set()
-        Gtk.main_quit()
 
 
 class KeyboardMouseController:
@@ -118,9 +149,11 @@ class KeyboardMouseController:
         self,
         stop_event: threading.Event,
         mode_callback,
+        quit_callback,
     ) -> None:
         self.stop_event = stop_event
         self.mode_callback = mode_callback
+        self.quit_callback = quit_callback
         self.keys = resolved_keys()
         self.devices = self._open_keyboards()
         self.output = self._create_output()
@@ -166,6 +199,9 @@ class KeyboardMouseController:
 
     @staticmethod
     def _looks_like_full_keyboard(device: InputDevice) -> bool:
+        if device.name == OUTPUT_DEVICE_NAME:
+            return False
+
         available = set(device.capabilities().get(ecodes.EV_KEY, []))
         required = {
             ecodes.KEY_A,
@@ -196,7 +232,7 @@ class KeyboardMouseController:
                 ecodes.REL_WHEEL_HI_RES,
             ],
         }
-        return UInput(capabilities, name="Keyboard Mouse Wayland")
+        return UInput(capabilities, name=OUTPUT_DEVICE_NAME)
 
     def start(self) -> None:
         self.thread = threading.Thread(target=self._run, name="input-loop", daemon=True)
@@ -249,7 +285,7 @@ class KeyboardMouseController:
         except Exception as error:
             print(f"Input loop stopped: {error}", file=sys.stderr)
             self.stop_event.set()
-            GLib.idle_add(Gtk.main_quit)
+            GLib.idle_add(self.quit_callback)
 
     def _handle_key(self, code: int, value: int) -> None:
         if value == 1:
@@ -487,19 +523,22 @@ class KeyboardMouseController:
 
 def main() -> int:
     stop_event = threading.Event()
-    indicator = ModeIndicator(stop_event)
+    service = ModeService()
+    loop = GLib.MainLoop()
     controller: KeyboardMouseController | None = None
 
-    def stop(*_args: object) -> None:
-        indicator.quit()
+    def stop(*_args: object) -> bool:
+        stop_event.set()
+        loop.quit()
+        return GLib.SOURCE_REMOVE
 
-    signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGTERM, stop)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, stop)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, stop)
 
     try:
-        controller = KeyboardMouseController(stop_event, indicator.set_mode)
+        controller = KeyboardMouseController(stop_event, service.set_mode, loop.quit)
         controller.start()
-        Gtk.main()
+        loop.run()
     except (PermissionError, OSError, RuntimeError, ValueError) as error:
         print(f"Cannot start keyboard mouse: {error}", file=sys.stderr)
         return 1
